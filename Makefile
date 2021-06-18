@@ -21,9 +21,8 @@ requirements:
 	pip install -r requirements-dev.txt
 
 docs:
-	rm -rf docs/source/generated && \
-		python -m sphinx -E "docs/source" "docs/_build" -W && \
-		make -C docs doctest
+	rm -rf docs/source/generated docs/source/_build && \
+		python -m sphinx -E "docs/source" "docs/_build" && make -C docs doctest
 
 code-cov:
 	pytest --cov-report=html --cov=pandera tests/

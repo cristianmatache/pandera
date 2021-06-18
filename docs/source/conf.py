@@ -102,8 +102,10 @@ exclude_patterns = []
 
 autoclass_content = "both"
 
+autodoc_member_order = "bysource"
 autodoc_default_options = {
     # 'special-members': '__call__',
+    "member-order": "bysource",
     "undoc-members": False,
     # 'exclude-members': '__weakref__'
 }

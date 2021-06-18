@@ -200,6 +200,6 @@ class Engine(ABCMeta):
             ) from None
 
     def get_registered_dtypes(cls) -> List[Type[DataType]]:
-        """Return :class:`pandera.dtypes.DataType`s registered
+        """Return :class:`pandera.dtypes.DataType` s registered
         with this engine."""
         return list(cls._registered_dtypes)

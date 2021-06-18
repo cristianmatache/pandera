@@ -1,4 +1,9 @@
-"""Pandera data types."""
+"""Pandera semantic data types.
+
+This module defined pandera-specific semantic data types that are decoupled
+from any particular dataframe framework.
+"""
+
 # pylint:disable=too-many-ancestors
 import dataclasses
 import inspect
@@ -35,7 +40,7 @@ class DataType(ABC):
         return self.coerce(data_container)
 
     def check(self, pandera_dtype: "DataType") -> bool:
-        """Check that pandera :class:`DataType`s are equivalent."""
+        """Check that pandera :class:`DataType` s are equivalent."""
         return self == pandera_dtype
 
     def __repr__(self) -> str:
@@ -48,7 +53,10 @@ class DataType(ABC):
         raise NotImplementedError()
 
 
+#: generic type for :class:`DataType`
 _Dtype = TypeVar("_Dtype", bound=DataType)
+
+#: type for :class:`DataType`
 _DataTypeClass = Type[_Dtype]
 
 

@@ -44,7 +44,8 @@ Schema Models
 
    pandera.model.SchemaModel
 
-**Model Components**
+Model Components
+^^^^^^^^^^^^^^^^
 
 .. autosummary::
    :toctree: generated
@@ -54,16 +55,18 @@ Schema Models
    pandera.model_components.check
    pandera.model_components.dataframe_check
 
-**Typing**
+Typing
+^^^^^^
 
 .. autosummary::
    :toctree: generated
-   :template: typing_module.rst
+   :template: dtypes_module.rst
    :nosignatures:
 
    pandera.typing
 
-**Config**
+Config
+^^^^^^
 
 .. autosummary::
    :toctree: generated
@@ -85,15 +88,18 @@ Checks
    pandera.hypotheses.Hypothesis
 
 
-Pandas Data Types
------------------
+Data Types
+----------
 
 .. autosummary::
    :toctree: generated
-   :template: pandas_dtype_class.rst
+   :template: dtypes_module.rst
    :nosignatures:
 
-   pandera.dtypes.DataType
+   pandera.dtypes
+   pandera.engines.engine
+   pandera.engines.numpy_engine
+   pandera.engines.pandas_engine
 
 
 Decorators
