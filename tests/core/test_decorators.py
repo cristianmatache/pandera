@@ -14,7 +14,6 @@ from pandera import (
     Field,
     Float,
     Int,
-    PandasDtype,
     SchemaModel,
     String,
     check_input,
@@ -23,6 +22,7 @@ from pandera import (
     check_types,
     errors,
 )
+from pandera.engines.pandas_engine import Engine
 from pandera.typing import DataFrame, Index, Series
 
 try:
@@ -356,7 +356,9 @@ def test_check_io() -> None:
     # invalid out schema types
     for out_schema in [1, 5.0, "foo", {"foo": "bar"}, ["foo"]]:
 
-        @check_io(out=out_schema)  # type: ignore[arg-type]  # mypy finds correctly the wrong usage
+        # mypy finds correctly the wrong usage
+        # pylint: disable=cell-var-from-loop
+        @check_io(out=out_schema)  # type: ignore[arg-type]
         def invalid_out_schema_type(df):
             return df
 
@@ -656,8 +658,8 @@ def test_check_types_coerce() -> None:
         return df
 
     df = transform_in(pd.DataFrame({"a": ["1"]}, index=["1"]))
-    expected = InSchema.to_schema().columns["a"].pandas_dtype
-    assert PandasDtype(str(df["a"].dtype)) == expected == PandasDtype("int")
+    expected = InSchema.to_schema().columns["a"].dtype
+    assert Engine.dtype(df["a"].dtype) == expected
 
     @check_types()
     def transform_out() -> DataFrame[OutSchema]:
@@ -665,10 +667,8 @@ def test_check_types_coerce() -> None:
         return pd.DataFrame({"b": ["1"]})
 
     out_df = transform_out()
-    expected = OutSchema.to_schema().columns["b"].pandas_dtype
-    assert (
-        PandasDtype(str(out_df["b"].dtype)) == expected == PandasDtype("int")
-    )
+    expected = OutSchema.to_schema().columns["b"].dtype
+    assert Engine.dtype(out_df["b"].dtype) == expected
 
 
 @pytest.mark.parametrize(
@@ -689,7 +689,8 @@ def test_check_types_with_literal_type(arg_examples):
         @check_types
         def transform_with_literal(
             df: DataFrame[InSchema],
-            arg: arg_type,  # pylint: disable=unused-argument
+            # pylint: disable=unused-argument,cell-var-from-loop
+            arg: arg_type,
         ) -> DataFrame[OutSchema]:
             return df.assign(b=100)
 
@@ -813,7 +814,38 @@ def test_coroutines(event_loop: AbstractEventLoop) -> None:
     async def coroutine(df1: DataFrame[Schema]) -> DataFrame[Schema]:
         return df1
 
-    class SomeClass:
+    class Meta(type):
+        @check_types
+        @check_output(Schema.to_schema())
+        @check_input(Schema.to_schema(), "df1")
+        @check_io(df1=Schema.to_schema(), out=Schema.to_schema())
+        async def regular_meta_coroutine(  # pylint: disable=no-self-use
+            cls,
+            df1: DataFrame[Schema],
+        ) -> DataFrame[Schema]:
+            return df1
+
+        @classmethod
+        @check_types
+        @check_output(Schema.to_schema())
+        @check_input(Schema.to_schema(), "df1")
+        @check_io(df1=Schema.to_schema(), out=Schema.to_schema())
+        async def class_meta_coroutine(  # pylint: disable=bad-mcs-classmethod-argument
+            mcs, df1: DataFrame[Schema]
+        ) -> DataFrame[Schema]:
+            return df1
+
+        @staticmethod
+        @check_types
+        @check_output(Schema.to_schema())
+        @check_input(Schema.to_schema())
+        @check_io(df1=Schema.to_schema(), out=Schema.to_schema())
+        async def static_meta_coroutine(
+            df1: DataFrame[Schema],
+        ) -> DataFrame[Schema]:
+            return df1
+
+    class SomeClass(metaclass=Meta):
         @check_types
         @check_output(Schema.to_schema())
         @check_input(Schema.to_schema(), "df1")
@@ -827,9 +859,8 @@ def test_coroutines(event_loop: AbstractEventLoop) -> None:
         @classmethod
         @check_types
         @check_output(Schema.to_schema())
-        # Uncomment when https://github.com/GrahamDumpleton/wrapt/issues/182 is fixed
-        # @check_input(Schema.to_schema(), "df1")
-        # @check_io(df1=Schema.to_schema(), out=Schema.to_schema())
+        @check_input(Schema.to_schema(), "df1")
+        @check_io(df1=Schema.to_schema(), out=Schema.to_schema())
         async def class_coroutine(
             cls, df1: DataFrame[Schema]
         ) -> DataFrame[Schema]:
@@ -855,6 +886,9 @@ def test_coroutines(event_loop: AbstractEventLoop) -> None:
             SomeClass.class_coroutine,
             instance.static_coroutine,
             SomeClass.static_coroutine,
+            SomeClass.class_meta_coroutine,
+            SomeClass.static_meta_coroutine,
+            SomeClass.regular_meta_coroutine,
         ]:
             res = await coro(good_df)
             pd.testing.assert_frame_equal(good_df, res)

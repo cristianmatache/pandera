@@ -2,7 +2,7 @@
 # pylint:disable=missing-class-docstring,missing-function-docstring,too-few-public-methods
 import re
 from decimal import Decimal  # pylint:disable=C0415
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import pandas as pd
 import pytest
@@ -12,23 +12,27 @@ import pandera.extensions as pax
 from pandera.typing import DataFrame, Index, Series, String
 
 
-def test_to_schema() -> None:
-    """Test that SchemaModel.to_schema() can produce the correct schema."""
+def test_to_schema_and_validate() -> None:
+    """
+    Test that SchemaModel.to_schema() can produce the correct schema and
+    can validate dataframe objects.
+    """
 
     class Schema(pa.SchemaModel):
         a: Series[int]
         b: Series[str]
+        c: Series[Any]
         idx: Index[str]
 
     expected = pa.DataFrameSchema(
-        columns={"a": pa.Column(int), "b": pa.Column(str)},
+        columns={"a": pa.Column(int), "b": pa.Column(str), "c": pa.Column()},
         index=pa.Index(str),
     )
-
     assert expected == Schema.to_schema()
 
-    with pytest.raises(TypeError):
-        Schema()
+    Schema(pd.DataFrame({"a": [1], "b": ["foo"], "c": [3.4]}, index=["1"]))
+    with pytest.raises(pa.errors.SchemaError):
+        Schema(pd.DataFrame({"a": [1]}))
 
 
 def test_empty_schema() -> None:
@@ -81,7 +85,7 @@ def test_invalid_annotations() -> None:
         d: Series[Decimal]  # type: ignore
 
     with pytest.raises(
-        TypeError, match="python type '<class 'decimal.Decimal'>"
+        TypeError, match="dtype '<class 'decimal.Decimal'>' not understood"
     ):
         InvalidDtype.to_schema()
 
@@ -114,6 +118,15 @@ def test_optional_index() -> None:
             pa.errors.SchemaInitError, match="Index 'idx' cannot be Optional."
         ):
             model.to_schema()
+
+
+def test_empty_dtype() -> None:
+    expected = pa.DataFrameSchema({"empty_column": pa.Column()})
+
+    class EmptyDtypeSchema(pa.SchemaModel):
+        empty_column: pa.typing.Series
+
+    assert EmptyDtypeSchema.to_schema() == expected
 
 
 def test_schemamodel_with_fields() -> None:
@@ -480,7 +493,7 @@ def test_inherit_schemamodel_fields_alias() -> None:
     )
     expected_child_override_attr = expected_mid.rename_columns(
         {"_b": "b"}
-    ).update_column("b", pandas_dtype=int)
+    ).update_column("b", dtype=int)
     expected_child_override_alias = expected_mid.rename_columns(
         {"_b": "new_b"}
     )

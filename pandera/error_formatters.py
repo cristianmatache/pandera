@@ -4,6 +4,7 @@ from typing import Union
 
 import pandas as pd
 
+from . import check_utils
 from .checks import _CheckBase
 
 
@@ -18,7 +19,10 @@ def format_generic_error_message(
     :param check: check that generated error.
     :param check_index: The validator that failed.
     """
-    return f"{parent_schema} failed series or dataframe validator {check_index}:\n{check}"
+    return (
+        f"{parent_schema} failed series or dataframe validator "
+        f"{check_index}:\n{check}"
+    )
 
 
 def format_vectorized_error_message(
@@ -70,11 +74,38 @@ def reshape_failure_cases(
         representing how many failures of that case occurred.
 
     """
-    if "column" in failure_cases and "failure_case" in failure_cases:
-        # handle case where failure cases occur at the index-column level
+    if not (
+        check_utils.is_table(failure_cases)
+        or check_utils.is_field(failure_cases)
+    ):
+        raise TypeError(
+            "Expected failure_cases to be a DataFrame or Series, found "
+            f"{type(failure_cases)}"
+        )
+
+    if (
+        check_utils.is_table(failure_cases)
+        and "column" in failure_cases.columns
+        and "failure_case" in failure_cases.columns
+    ):
         reshaped_failure_cases = failure_cases
-    elif hasattr(failure_cases, "index") and isinstance(
-        failure_cases.index, pd.MultiIndex
+    elif check_utils.is_table(failure_cases) and check_utils.is_multiindex(
+        failure_cases.index
+    ):
+        reshaped_failure_cases = (
+            failure_cases.rename_axis("column", axis=1)
+            .assign(
+                index=lambda df: (
+                    df.index.to_frame().apply(tuple, axis=1).astype(str)
+                )
+            )
+            .set_index("index", drop=True)
+            .unstack()
+            .rename("failure_case")
+            .reset_index()
+        )
+    elif check_utils.is_field(failure_cases) and check_utils.is_multiindex(
+        failure_cases.index
     ):
         reshaped_failure_cases = (
             failure_cases.rename("failure_case")
@@ -86,7 +117,7 @@ def reshape_failure_cases(
             )[["failure_case", "index"]]
             .reset_index(drop=True)
         )
-    elif isinstance(failure_cases, pd.DataFrame):
+    elif check_utils.is_table(failure_cases):
         reshaped_failure_cases = (
             failure_cases.rename_axis("column", axis=1)
             .rename_axis("index", axis=0)
@@ -94,15 +125,14 @@ def reshape_failure_cases(
             .rename("failure_case")
             .reset_index()
         )
-    elif isinstance(failure_cases, pd.Series):
-        reshaped_failure_cases = (
-            failure_cases.rename("failure_case")
-            .rename_axis("index")
-            .reset_index()
-        )
+    elif check_utils.is_field(failure_cases):
+        reshaped_failure_cases = failure_cases.rename("failure_case")
+        reshaped_failure_cases.index.name = "index"
+        reshaped_failure_cases = reshaped_failure_cases.reset_index()
     else:
         raise TypeError(
-            f"type of failure_cases argument not understood: {type(failure_cases)}"
+            "type of failure_cases argument not understood: "
+            f"{type(failure_cases)}"
         )
 
     return (

@@ -17,6 +17,14 @@ ErrorData = namedtuple(
 )
 
 
+class ParserError(Exception):
+    """Raised when data cannot be parsed from the raw into its clean form."""
+
+    def __init__(self, message, failure_cases):
+        super().__init__(message)
+        self.failure_cases = failure_cases
+
+
 class SchemaInitError(Exception):
     """Raised when schema initialization fails."""
 
@@ -96,20 +104,33 @@ class SchemaErrors(Exception):
         for k, v in error_counts.items():
             msg += f"- {k}: {v}\n"
 
-        def failure_cases(x):
-            return list(set(x))
+        def agg_failure_cases(df):
+            # NOTE: this is a hack to add modin support
+            if type(df).__module__.startswith("modin.pandas"):
+                return (
+                    df.groupby(["schema_context", "column", "check"])
+                    .agg({"failure_case": "unique"})
+                    .failure_case
+                )
+            return df.groupby(
+                ["schema_context", "column", "check"]
+            ).failure_case.unique()
 
         agg_schema_errors = (
             schema_errors.fillna({"column": "<NA>"})
-            .groupby(["schema_context", "column", "check"])
-            .failure_case.agg([failure_cases])
+            .pipe(agg_failure_cases)
+            .rename("failure_cases")
+            .to_frame()
             .assign(n_failure_cases=lambda df: df.failure_cases.map(len))
-            .sort_index(
-                level=["schema_context", "column"],
-                ascending=[False, True],
-            )
         )
-
+        index_labels = [
+            agg_schema_errors.index.names.index(name)
+            for name in ["schema_context", "column"]
+        ]
+        agg_schema_errors = agg_schema_errors.sort_index(
+            level=index_labels,
+            ascending=[False, True],
+        )
         msg += "\nSchema Error Summary"
         msg += "\n--------------------\n"
         with pd.option_context("display.max_colwidth", 100):
@@ -163,12 +184,46 @@ class SchemaErrors(Exception):
                     schema_context=err.schema.__class__.__name__,
                     check=check_identifier,
                     check_number=err.check_index,
-                    column=column,
+                    # if the column key is a tuple (for MultiIndex column
+                    # names), explicitly wrap `column` in a list of the
+                    # same length as the number of failure cases.
+                    column=(
+                        [column] * err.failure_cases.shape[0]
+                        if isinstance(column, tuple)
+                        else column
+                    ),
                 )
                 check_failure_cases.append(failure_cases[column_order])
 
+        # NOTE: this is a hack to support koalas and modin
+        concat_fn = pd.concat
+        if any(
+            type(x).__module__.startswith("databricks.koalas")
+            for x in check_failure_cases
+        ):
+            # pylint: disable=import-outside-toplevel
+            import databricks.koalas as ks
+
+            concat_fn = ks.concat
+            check_failure_cases = [
+                x if isinstance(x, ks.DataFrame) else ks.DataFrame(x)
+                for x in check_failure_cases
+            ]
+        elif any(
+            type(x).__module__.startswith("modin.pandas")
+            for x in check_failure_cases
+        ):
+            # pylint: disable=import-outside-toplevel
+            import modin.pandas as mpd
+
+            concat_fn = mpd.concat
+            check_failure_cases = [
+                x if isinstance(x, mpd.DataFrame) else mpd.DataFrame(x)
+                for x in check_failure_cases
+            ]
+
         failure_cases = (
-            pd.concat(check_failure_cases)
+            concat_fn(check_failure_cases)
             .reset_index(drop=True)
             .sort_values("schema_context", ascending=False)
             .drop_duplicates()

@@ -1,21 +1,20 @@
 """Test typing annotations for the model api."""
 # pylint:disable=missing-class-docstring,too-few-public-methods
 import re
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 
 import numpy as np
 import pandas as pd
 import pytest
 
 import pandera as pa
-from pandera.dtypes import LEGACY_PANDAS, PANDAS_1_3_0_PLUS, PandasDtype
-from pandera.typing import LEGACY_TYPING, Series
+from pandera.dtypes import DataType
+from pandera.typing import DataFrame, Index, Series
 
-if not LEGACY_TYPING:
-    try:  # python 3.9+
-        from typing import Annotated  # type: ignore
-    except ImportError:
-        from typing_extensions import Annotated  # type: ignore
+try:  # python 3.9+
+    from typing import Annotated  # type: ignore
+except ImportError:
+    from typing_extensions import Annotated  # type: ignore
 
 
 class SchemaBool(pa.SchemaModel):
@@ -127,7 +126,7 @@ class SchemaUINT64(pa.SchemaModel):
 
 
 def _test_literal_pandas_dtype(
-    model: Type[pa.SchemaModel], pandas_dtype: PandasDtype
+    model: Type[pa.SchemaModel], pandas_dtype: DataType
 ):
     schema = model.to_schema()
     expected = pa.Column(pandas_dtype, name="col").dtype
@@ -159,13 +158,12 @@ def _test_literal_pandas_dtype(
     ],
 )
 def test_literal_legacy_pandas_dtype(
-    model: Type[pa.SchemaModel], pandas_dtype: PandasDtype
+    model: Type[pa.SchemaModel], pandas_dtype: DataType
 ):
     """Test literal annotations with the legacy pandas dtypes."""
     _test_literal_pandas_dtype(model, pandas_dtype)
 
 
-@pytest.mark.skipif(LEGACY_PANDAS, reason="pandas >= 1.0.0 required")
 @pytest.mark.parametrize(
     "model, pandas_dtype",
     [
@@ -180,7 +178,7 @@ def test_literal_legacy_pandas_dtype(
     ],
 )
 def test_literal_new_pandas_dtype(
-    model: Type[pa.SchemaModel], pandas_dtype: PandasDtype
+    model: Type[pa.SchemaModel], pandas_dtype: DataType
 ):
     """Test literal annotations with the new nullable pandas dtypes."""
     _test_literal_pandas_dtype(model, pandas_dtype)
@@ -195,7 +193,7 @@ class SchemaFieldCategoricalDtype(pa.SchemaModel):
 def _test_annotated_dtype(
     model: Type[pa.SchemaModel],
     dtype: Type,
-    dtype_kwargs: Dict[str, Any] = None,
+    dtype_kwargs: Optional[Dict[str, Any]] = None,
 ):
     dtype_kwargs = dtype_kwargs or {}
     schema = model.to_schema()
@@ -305,23 +303,23 @@ def test_legacy_default_pandas_extension_dtype(
     _test_default_annotated_dtype(model, dtype, has_mandatory_args)
 
 
-if not LEGACY_TYPING:
+class SchemaAnnotatedCategoricalDtype(pa.SchemaModel):
+    col: Series[Annotated[pd.CategoricalDtype, ["b", "a"], True]]
 
-    class SchemaAnnotatedCategoricalDtype(pa.SchemaModel):
-        col: Series[Annotated[pd.CategoricalDtype, ["b", "a"], True]]
 
-    class SchemaAnnotatedDatetimeTZDtype(pa.SchemaModel):
-        col: Series[Annotated[pd.DatetimeTZDtype, "ns", "est"]]
+class SchemaAnnotatedDatetimeTZDtype(pa.SchemaModel):
+    col: Series[Annotated[pd.DatetimeTZDtype, "ns", "est"]]
 
-    if PANDAS_1_3_0_PLUS:
 
-        class SchemaAnnotatedIntervalDtype(pa.SchemaModel):
-            col: Series[Annotated[pd.IntervalDtype, "int32", "both"]]
+if pa.PANDAS_1_3_0_PLUS:
 
-    else:
+    class SchemaAnnotatedIntervalDtype(pa.SchemaModel):
+        col: Series[Annotated[pd.IntervalDtype, "int32", "both"]]
 
-        class SchemaAnnotatedIntervalDtype(pa.SchemaModel):  # type: ignore
-            col: Series[Annotated[pd.IntervalDtype, "int32"]]
+else:
+
+    class SchemaAnnotatedIntervalDtype(pa.SchemaModel):  # type: ignore
+        col: Series[Annotated[pd.IntervalDtype, "int32"]]
 
     class SchemaAnnotatedPeriodDtype(pa.SchemaModel):
         col: Series[Annotated[pd.PeriodDtype, "D"]]
@@ -347,7 +345,7 @@ if not LEGACY_TYPING:
                 pd.IntervalDtype,
                 (
                     {"subtype": "int32", "closed": "both"}
-                    if PANDAS_1_3_0_PLUS
+                    if pa.PANDAS_1_3_0_PLUS
                     else {"subtype": "int32"}
                 ),
             ),
@@ -395,58 +393,95 @@ if not LEGACY_TYPING:
             SchemaRedundantField.to_schema()
 
 
-if not LEGACY_PANDAS:
+class SchemaInt8Dtype(pa.SchemaModel):
+    col: Series[pd.Int8Dtype]
 
-    class SchemaInt8Dtype(pa.SchemaModel):
-        col: Series[pd.Int8Dtype]
 
-    class SchemaInt16Dtype(pa.SchemaModel):
-        col: Series[pd.Int16Dtype]
+class SchemaInt16Dtype(pa.SchemaModel):
+    col: Series[pd.Int16Dtype]
 
-    class SchemaInt32Dtype(pa.SchemaModel):
-        col: Series[pd.Int32Dtype]
 
-    class SchemaInt64Dtype(pa.SchemaModel):
-        col: Series[pd.Int64Dtype]
+class SchemaInt32Dtype(pa.SchemaModel):
+    col: Series[pd.Int32Dtype]
 
-    class SchemaUInt8Dtype(pa.SchemaModel):
-        col: Series[pd.UInt8Dtype]
 
-    class SchemaUInt16Dtype(pa.SchemaModel):
-        col: Series[pd.UInt16Dtype]
+class SchemaInt64Dtype(pa.SchemaModel):
+    col: Series[pd.Int64Dtype]
 
-    class SchemaUInt32Dtype(pa.SchemaModel):
-        col: Series[pd.UInt32Dtype]
 
-    class SchemaUInt64Dtype(pa.SchemaModel):
-        col: Series[pd.UInt64Dtype]
+class SchemaUInt8Dtype(pa.SchemaModel):
+    col: Series[pd.UInt8Dtype]
 
-    class SchemaStringDtype(pa.SchemaModel):
-        col: Series[pd.StringDtype]
 
-    class SchemaBooleanDtype(pa.SchemaModel):
-        col: Series[pd.BooleanDtype]
+class SchemaUInt16Dtype(pa.SchemaModel):
+    col: Series[pd.UInt16Dtype]
 
-    @pytest.mark.skipif(LEGACY_PANDAS, reason="pandas >= 1.0.0 required")
-    @pytest.mark.parametrize(
-        "model, dtype, has_mandatory_args",
-        [
-            (SchemaInt8Dtype, pd.Int8Dtype, False),
-            (SchemaInt16Dtype, pd.Int16Dtype, False),
-            (SchemaInt32Dtype, pd.Int32Dtype, False),
-            (SchemaInt64Dtype, pd.Int64Dtype, False),
-            (SchemaUInt8Dtype, pd.UInt8Dtype, False),
-            (SchemaUInt16Dtype, pd.UInt16Dtype, False),
-            (SchemaUInt32Dtype, pd.UInt32Dtype, False),
-            (SchemaUInt64Dtype, pd.UInt64Dtype, False),
-            (SchemaStringDtype, pd.StringDtype, False),
-            (SchemaBooleanDtype, pd.BooleanDtype, False),
-        ],
+
+class SchemaUInt32Dtype(pa.SchemaModel):
+    col: Series[pd.UInt32Dtype]
+
+
+class SchemaUInt64Dtype(pa.SchemaModel):
+    col: Series[pd.UInt64Dtype]
+
+
+class SchemaStringDtype(pa.SchemaModel):
+    col: Series[pd.StringDtype]
+
+
+class SchemaBooleanDtype(pa.SchemaModel):
+    col: Series[pd.BooleanDtype]
+
+
+@pytest.mark.parametrize(
+    "model, dtype, has_mandatory_args",
+    [
+        (SchemaInt8Dtype, pd.Int8Dtype, False),
+        (SchemaInt16Dtype, pd.Int16Dtype, False),
+        (SchemaInt32Dtype, pd.Int32Dtype, False),
+        (SchemaInt64Dtype, pd.Int64Dtype, False),
+        (SchemaUInt8Dtype, pd.UInt8Dtype, False),
+        (SchemaUInt16Dtype, pd.UInt16Dtype, False),
+        (SchemaUInt32Dtype, pd.UInt32Dtype, False),
+        (SchemaUInt64Dtype, pd.UInt64Dtype, False),
+        (SchemaStringDtype, pd.StringDtype, False),
+        (SchemaBooleanDtype, pd.BooleanDtype, False),
+    ],
+)
+def test_new_pandas_extension_dtype_class(
+    model,
+    dtype: pd.core.dtypes.base.ExtensionDtype,
+    has_mandatory_args: bool,
+):
+    """Test type annotations with the new nullable pandas dtypes."""
+    _test_default_annotated_dtype(model, dtype, has_mandatory_args)
+
+
+class InitSchema(pa.SchemaModel):
+    col1: Series[int]
+    col2: Series[float]
+    col3: Series[str]
+    index: Index[int]
+
+
+def test_init_pandas_dataframe():
+    """Test initialization of pandas.typing.DataFrame with Schema."""
+    assert isinstance(
+        DataFrame[InitSchema]({"col1": [1], "col2": [1.0], "col3": ["1"]}),
+        DataFrame,
     )
-    def test_new_pandas_extension_dtype_class(
-        model,
-        dtype: pd.core.dtypes.base.ExtensionDtype,
-        has_mandatory_args: bool,
-    ):
-        """Test type annotations with the new nullable pandas dtypes."""
-        _test_default_annotated_dtype(model, dtype, has_mandatory_args)
+
+
+@pytest.mark.parametrize(
+    "invalid_data",
+    [
+        {"col1": [1.0], "col2": [1.0], "col3": ["1"]},
+        {"col1": [1], "col2": [1], "col3": ["1"]},
+        {"col1": [1], "col2": [1.0], "col3": [1]},
+        {"col1": [1]},
+    ],
+)
+def test_init_pandas_dataframe_errors(invalid_data):
+    """Test errors from initializing a pandas.typing.DataFrame with Schema."""
+    with pytest.raises(pa.errors.SchemaError):
+        DataFrame[InitSchema](invalid_data)

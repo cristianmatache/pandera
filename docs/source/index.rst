@@ -1,9 +1,9 @@
 .. pandera documentation master file
 
-Statistical Data Validation for Pandas
-======================================
+A Statistical DataFrame Testing Toolkit
+=======================================
 
-*A data validation library for scientists, engineers, and analysts seeking
+*A dataframe validation library for scientists, engineers, and analysts seeking
 correctness.*
 
 
@@ -59,17 +59,27 @@ correctness.*
     :target: https://pepy.tech/badge/pandera
     :alt: Total Downloads
 
+.. image:: https://img.shields.io/conda/dn/conda-forge/pandera?label=conda%20downloads
+    :target: https://anaconda.org/conda-forge/pandera
+    :alt: Conda Downloads
+
+.. image:: https://img.shields.io/badge/discord-chat-purple?color=%235765F2&label=discord&logo=discord
+    :target: https://discord.gg/vyanhWuaKB
+    :alt: Discord Community
+
 |
 
 ``pandera`` provides a flexible and expressive API for performing data
-validation on tidy (long-form) and wide data to make data processing pipelines
-more readable and robust.
+validation on dataframes to make data processing pipelines more readable and
+robust.
 
-`pandas <http://pandas.pydata.org>`_ data structures contain information that
-``pandera`` explicitly validates at runtime. This is useful in
-production-critical data pipelines or reproducible research settings. With
-``pandera``, you can:
+Dataframes contain information that ``pandera`` explicitly validates at runtime.
+This is useful in production-critical data pipelines or reproducible research
+settings. With ``pandera``, you can:
 
+#. Define a schema once and use it to validate :ref:`different dataframe types <supported-dataframe-libraries>`
+   including `pandas <http://pandas.pydata.org>`_, `dask <https://dask.org/>`_,
+   `modin <https://modin.readthedocs.io/>`_, and `koalas <https://koalas.readthedocs.io/>`_.
 #. :ref:`Check<checks>` the types and properties of columns in a
    ``pd.DataFrame`` or values in a ``pd.Series``.
 #. Perform more complex statistical validation like
@@ -80,6 +90,11 @@ production-critical data pipelines or reproducible research settings. With
    pydantic-style syntax and validate dataframes using the typing syntax.
 #. :ref:`Synthesize data<data synthesis strategies>` from schema objects for
    property-based testing with pandas data structures.
+#. :ref:`Lazily Validate<lazy_validation>` dataframes so that all validation
+   rules are executed before raising an error.
+#. :ref:`Integrate <integrations>` with a rich ecosystem of python tools like
+   `pydantic <https://pydantic-docs.helpmanual.io/>`_ and
+   `mypy <http://mypy-lang.org/>`_.
 
 
 .. _installation:
@@ -101,6 +116,11 @@ Installing optional functionality:
     pip install pandera[hypotheses]  # hypothesis checks
     pip install pandera[io]          # yaml/script schema io utilities
     pip install pandera[strategies]  # data synthesis strategies
+    pip install pandera[dask]        # validate dask dataframes
+    pip install pandera[koalas]      # validate koalas dataframes
+    pip install pandera[modin]       # validate modin dataframes
+    pip install pandera[modin-ray]   # validate modin dataframes with ray
+    pip install pandera[modin-dask]  # validate modin dataframes with dask
     pip install pandera[all]         # all packages
 
 
@@ -155,7 +175,7 @@ Quick Start
 You can pass the built-in python types that are supported by
 pandas, or strings representing the
 `legal pandas datatypes <https://pandas.pydata.org/docs/user_guide/basics.html#dtypes>`_,
-or pandera's ``PandasDtype`` enum:
+or pandera's ``DataType``:
 
 .. testcode:: quick_start
 
@@ -171,13 +191,13 @@ or pandera's ``PandasDtype`` enum:
         # pandas > 1.0.0 support native "string" type
         "str_column2": pa.Column("str"),
 
-        # pandera PandasDtype enum
+        # pandera DataType
         "int_column3": pa.Column(pa.Int),
         "float_column3": pa.Column(pa.Float),
         "str_column3": pa.Column(pa.String),
     })
 
-For more details on data types, see :class:`~pandera.dtypes.PandasDtype`
+For more details on data types, see :class:`~pandera.dtypes.DataType`
 
 
 Schema Model
@@ -240,7 +260,7 @@ In the case that a validation ``Check`` is violated:
 
     Traceback (most recent call last):
     ...
-    SchemaError: <Schema Column: 'column1' type=int> failed element-wise validator 0:
+    SchemaError: <Schema Column: 'column1' type=<class 'int'>> failed element-wise validator 0:
     <Check <lambda>: range checker [0, 10]>
     failure cases:
        index  failure_case
@@ -290,6 +310,14 @@ Issues
 Submit issues, feature requests or bugfixes on
 `github <https://github.com/pandera-dev/pandera/issues>`__.
 
+Need Help?
+----------
+
+There are many ways of getting help with your questions. You can ask a question
+on `Github Discussions <https://github.com/pandera-dev/pandera/discussions/categories/q-a>`__
+page or reach out to the maintainers and pandera community on
+`Discord <https://discord.gg/vyanhWuaKB>`__
+
 .. toctree::
     :maxdepth: 6
     :caption: Introduction
@@ -303,22 +331,26 @@ Submit issues, feature requests or bugfixes on
    :hidden:
 
    dataframe_schemas
+   schema_models
    series_schemas
    checks
    hypothesis
+   dtypes
    decorators
    schema_inference
-   schema_models
    lazy_validation
    data_synthesis_strategies
    extensions
+   third_party_schema
+   supported_libraries
+   integrations
 
 .. toctree::
    :maxdepth: 6
    :caption: Reference
    :hidden:
 
-   API_reference
+   reference/index
 
 .. toctree::
    :maxdepth: 6

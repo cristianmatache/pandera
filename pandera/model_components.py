@@ -48,6 +48,7 @@ class FieldInfo:
     __slots__ = (
         "checks",
         "nullable",
+        "unique",
         "allow_duplicates",
         "coerce",
         "regex",
@@ -61,7 +62,8 @@ class FieldInfo:
         self,
         checks: Optional[_CheckList] = None,
         nullable: bool = False,
-        allow_duplicates: bool = True,
+        unique: bool = False,
+        allow_duplicates: Optional[bool] = None,
         coerce: bool = False,
         regex: bool = False,
         alias: Any = None,
@@ -70,6 +72,7 @@ class FieldInfo:
     ) -> None:
         self.checks = _to_checklist(checks)
         self.nullable = nullable
+        self.unique = unique
         self.allow_duplicates = allow_duplicates
         self.coerce = coerce
         self.regex = regex
@@ -118,6 +121,7 @@ class FieldInfo:
             pandas_dtype,
             Column,
             nullable=self.nullable,
+            unique=self.unique,
             allow_duplicates=self.allow_duplicates,
             coerce=self.coerce,
             regex=self.regex,
@@ -137,6 +141,7 @@ class FieldInfo:
             pandas_dtype,
             Index,
             nullable=self.nullable,
+            unique=self.unique,
             allow_duplicates=self.allow_duplicates,
             coerce=self.coerce,
             name=name,
@@ -161,7 +166,8 @@ def Field(
     str_matches: Optional[str] = None,
     str_startswith: Optional[str] = None,
     nullable: bool = False,
-    allow_duplicates: bool = True,
+    unique: bool = False,
+    allow_duplicates: Optional[bool] = None,
     coerce: bool = False,
     regex: bool = False,
     ignore_na: bool = True,
@@ -182,8 +188,16 @@ def Field(
     The keyword-only arguments from ``eq`` to ``str_startswith`` are dispatched
     to the built-in `~pandera.checks.Check` methods.
 
-    :param nullable: whether or not the column/index is nullable.
-    :param allow_duplicates: whether or not to accept duplicate values.
+    :param nullable: Whether or not the column/index can contain null values.
+    :param unique: Whether column values should be unique.
+    :param allow_duplicates: Whether or not column can contain duplicate
+        values.
+
+        .. warning::
+
+            This option will be deprecated in 0.8.0. Use the ``unique``
+            argument instead.
+
     :param coerce: coerces the data type if ``True``.
     :param regex: whether or not the field name or alias is a regex pattern.
     :param ignore_na: whether or not to ignore null values in the checks.
@@ -194,7 +208,8 @@ def Field(
     :param check_name: Whether to check the name of the column/index during
         validation. `None` is the default behavior, which translates to `True`
         for columns and multi-index, and to `False` for a single index.
-    :param dtype_kwargs: The parameters to be forwarded to the type of the field.
+    :param dtype_kwargs: The parameters to be forwarded to the type of the
+        field.
     :param kwargs: Specify custom checks that have been registered with the
         :class:`~pandera.extensions.register_check_method` decorator.
     """
@@ -229,6 +244,7 @@ def Field(
     return FieldInfo(
         checks=checks or None,
         nullable=nullable,
+        unique=unique,
         allow_duplicates=allow_duplicates,
         coerce=coerce,
         regex=regex,

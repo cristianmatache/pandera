@@ -14,7 +14,9 @@ from typing import (
     Set,
     Tuple,
     Type,
+    TypeVar,
     Union,
+    cast,
 )
 
 import pandas as pd
@@ -32,24 +34,20 @@ from .model_components import (
     FieldInfo,
 )
 from .schemas import DataFrameSchema
-from .typing import LEGACY_TYPING, AnnotationInfo, Index, Series
+from .typing import INDEX_TYPES, SERIES_TYPES, AnnotationInfo
+from .typing.common import DataFrameBase
 
-if LEGACY_TYPING:
-
-    def get_type_hints(
-        obj: Callable[..., Any],
-        globalns: Optional[Dict[str, Any]] = None,
-        localns: Optional[Dict[str, Any]] = None,
-        include_extras: bool = False,
-    ) -> Dict[str, Any]:
-        # pylint:disable=function-redefined, missing-function-docstring, unused-argument
-        return typing.get_type_hints(obj, globalns, localns)
-
-
-elif sys.version_info[:2] < (3, 9):
+if sys.version_info[:2] < (3, 9):
     from typing_extensions import get_type_hints
 else:
     from typing import get_type_hints
+
+try:
+    from pydantic.fields import ModelField  # pylint:disable=unused-import
+
+    HAS_PYDANTIC = True
+except ImportError:
+    HAS_PYDANTIC = False
 
 SchemaIndex = Union[schema_components.Index, schema_components.MultiIndex]
 
@@ -58,6 +56,17 @@ _CONFIG_KEY = "Config"
 
 
 MODEL_CACHE: Dict[Type["SchemaModel"], DataFrameSchema] = {}
+F = TypeVar("F", bound=Callable)
+TSchemaModel = TypeVar("TSchemaModel", bound="SchemaModel")
+
+
+def docstring_substitution(*args: Any, **kwargs: Any) -> Callable[[F], F]:
+    """Typed wrapper around pd.util.Substitution."""
+
+    def decorator(func: F) -> F:
+        return cast(F, pd.util.Substitution(*args, **kwargs)(func))
+
+    return decorator
 
 
 class BaseConfig:  # pylint:disable=R0903
@@ -68,6 +77,9 @@ class BaseConfig:  # pylint:disable=R0903
 
     name: Optional[str] = None  #: name of schema
     coerce: bool = False  #: coerce types of all schema components
+
+    #: make sure certain column combinations are unique
+    unique: Optional[Union[str, List[str]]] = None
 
     #: make sure all specified columns are in the validated dataframe -
     #: if ``"filter"``, removes columns not specified in the schema
@@ -135,7 +147,17 @@ def _convert_extras_to_checks(extras: Dict[str, Any]) -> List[Check]:
     return checks
 
 
-class SchemaModel:
+class _MetaSchema(type):
+    """Add string representations, mainly for pydantic."""
+
+    def __repr__(cls):
+        return str(cls)
+
+    def __str__(cls):
+        return cls.__name__
+
+
+class SchemaModel(metaclass=_MetaSchema):
     """Definition of a :class:`~pandera.DataFrameSchema`.
 
     *new in 0.5.0*
@@ -152,8 +174,11 @@ class SchemaModel:
     __checks__: Dict[str, List[Check]] = {}
     __dataframe_checks__: List[Check] = []
 
-    def __new__(cls, *args, **kwargs):
-        raise TypeError(f"{cls.__name__} may not be instantiated.")
+    # This is syntantic sugar that delegates to the validate method
+    @docstring_substitution(validate_doc=DataFrameSchema.validate.__doc__)
+    def __new__(cls, *args, **kwargs) -> DataFrameBase[TSchemaModel]:  # type: ignore [misc]
+        """%(validate_doc)s"""
+        return cast(DataFrameBase[TSchemaModel], cls.validate(*args, **kwargs))
 
     def __init_subclass__(cls, **kwargs):
         """Ensure :class:`~pandera.model_components.FieldInfo` instances."""
@@ -205,10 +230,11 @@ class SchemaModel:
             strict=cls.__config__.strict,
             name=cls.__config__.name,
             ordered=cls.__config__.ordered,
+            unique=cls.__config__.unique,
         )
         if cls not in MODEL_CACHE:
-            MODEL_CACHE[cls] = cls.__schema__
-        return cls.__schema__
+            MODEL_CACHE[cls] = cls.__schema__  # type: ignore
+        return cls.__schema__  # type: ignore
 
     @classmethod
     def to_yaml(cls, stream: Optional[os.PathLike] = None):
@@ -218,9 +244,9 @@ class SchemaModel:
         return cls.to_schema().to_yaml(stream)
 
     @classmethod
-    @pd.util.Substitution(validate_doc=DataFrameSchema.validate.__doc__)
+    @docstring_substitution(validate_doc=DataFrameSchema.validate.__doc__)
     def validate(
-        cls,
+        cls: Type[TSchemaModel],
         check_obj: pd.DataFrame,
         head: Optional[int] = None,
         tail: Optional[int] = None,
@@ -228,25 +254,34 @@ class SchemaModel:
         random_state: Optional[int] = None,
         lazy: bool = False,
         inplace: bool = False,
-    ) -> pd.DataFrame:
+    ) -> DataFrameBase[TSchemaModel]:
         """%(validate_doc)s"""
-        return cls.to_schema().validate(
-            check_obj, head, tail, sample, random_state, lazy, inplace
+        return cast(
+            DataFrameBase[TSchemaModel],
+            cls.to_schema().validate(
+                check_obj, head, tail, sample, random_state, lazy, inplace
+            ),
         )
 
     @classmethod
-    @pd.util.Substitution(strategy_doc=DataFrameSchema.strategy.__doc__)
+    @docstring_substitution(strategy_doc=DataFrameSchema.strategy.__doc__)
     @st.strategy_import_error
-    def strategy(cls, *, size=None):
+    def strategy(
+        cls: Type[TSchemaModel], *, size: Optional[int] = None
+    ) -> DataFrameBase[TSchemaModel]:
         """%(strategy_doc)s"""
         return cls.to_schema().strategy(size=size)
 
     @classmethod
-    @pd.util.Substitution(example_doc=DataFrameSchema.strategy.__doc__)
+    @docstring_substitution(example_doc=DataFrameSchema.strategy.__doc__)
     @st.strategy_import_error
-    def example(cls, *, size=None):
+    def example(
+        cls: Type[TSchemaModel], *, size: Optional[int] = None
+    ) -> DataFrameBase[TSchemaModel]:
         """%(example_doc)s"""
-        return cls.to_schema().example(size=size)
+        return cast(
+            DataFrameBase[TSchemaModel], cls.to_schema().example(size=size)
+        )
 
     @classmethod
     def _build_columns_index(  # pylint:disable=too-many-locals
@@ -259,7 +294,8 @@ class SchemaModel:
         Optional[Union[schema_components.Index, schema_components.MultiIndex]],
     ]:
         index_count = sum(
-            annotation.origin is Index for annotation, _ in fields.values()
+            annotation.origin in INDEX_TYPES
+            for annotation, _ in fields.values()
         )
 
         columns: Dict[str, schema_components.Column] = {}
@@ -281,7 +317,12 @@ class SchemaModel:
             else:
                 dtype = annotation.arg
 
-            if annotation.origin is Series:
+            dtype = None if dtype is Any else dtype
+
+            if (
+                annotation.origin in SERIES_TYPES
+                or annotation.raw_annotation in SERIES_TYPES
+            ):
                 col_constructor = (
                     field.to_column if field else schema_components.Column
                 )
@@ -297,7 +338,10 @@ class SchemaModel:
                     checks=field_checks,
                     name=field_name,
                 )
-            elif annotation.origin is Index:
+            elif (
+                annotation.origin in INDEX_TYPES
+                or annotation.raw_annotation in INDEX_TYPES
+            ):
                 if annotation.optional:
                     raise SchemaInitError(
                         f"Index '{field_name}' cannot be Optional."
@@ -319,7 +363,8 @@ class SchemaModel:
                 indices.append(index)
             else:
                 raise SchemaInitError(
-                    f"Invalid annotation '{field_name}: {annotation.raw_annotation}'"
+                    f"Invalid annotation '{field_name}: "
+                    f"{annotation.raw_annotation}'"
                 )
 
         return columns, _build_schema_index(indices, **multiindex_kwargs)
@@ -441,6 +486,31 @@ class SchemaModel:
     def _extract_df_checks(cls, check_infos: List[CheckInfo]) -> List[Check]:
         """Collect field annotations from bases in mro reverse order."""
         return [check_info.to_check(cls) for check_info in check_infos]
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls._pydantic_validate
+
+    @classmethod
+    def _pydantic_validate(cls, schema_model: Any) -> "SchemaModel":
+        """Verify that the input is a compatible schema model."""
+        if not inspect.isclass(schema_model):  # type: ignore
+            raise TypeError(f"{schema_model} is not a pandera.SchemaModel")
+
+        if not issubclass(schema_model, cls):  # type: ignore
+            raise TypeError(f"{schema_model} does not inherit {cls}.")
+
+        try:
+            schema_model.to_schema()
+        except SchemaInitError as exc:
+            raise ValueError(
+                f"Cannot use {cls} as a pydantic type as its "
+                "SchemaModel cannot be converted to a DataFrameSchema.\n"
+                f"Please revisit the model to address the following errors:"
+                f"\n{exc}"
+            ) from exc
+
+        return cast("SchemaModel", schema_model)
 
 
 def _build_schema_index(

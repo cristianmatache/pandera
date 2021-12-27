@@ -50,6 +50,7 @@ extensions = [
 ]
 
 doctest_global_setup = """
+import platform
 import sys
 import pandas as pd
 import numpy as np
@@ -64,9 +65,20 @@ except ImportError:
 else:
     SKIP_STRATEGY = False
 
+try:
+    import koalas
+except ImportError:
+    KOALAS_INSTALLED = True
+else:
+    KOALAS_INSTALLED = False
+
 SKIP = sys.version_info < (3, 6)
 PY36 = sys.version_info < (3, 7)
 SKIP_PANDAS_LT_V1 = version.parse(pd.__version__).release < (1, 0) or PY36
+SKIP_SCALING = True
+SKIP_SCHEMA_MODEL = SKIP_PANDAS_LT_V1 or KOALAS_INSTALLED
+SKIP_MODIN = True
+
 """
 
 doctest_default_flags = (
@@ -103,9 +115,7 @@ exclude_patterns = []
 autoclass_content = "both"
 
 autodoc_default_options = {
-    # 'special-members': '__call__',
     "undoc-members": False,
-    # 'exclude-members': '__weakref__'
 }
 
 # -- Options for HTML output -------------------------------------------------
@@ -152,17 +162,14 @@ html_theme_options = {
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
 
-html_css_files = [
-    "default.css",
-    "custom_furo.scss",
-]
+html_css_files = ["default.css"]
 
 rst_prolog = """
 .. role:: red
 .. role:: green
 """
 
-autosummary_generate = ["API_reference.rst"]
+autosummary_generate = True
 autosummary_filename_map = {
     "pandera.Check": "pandera.Check",
     "pandera.check": "pandera.check_decorator",
@@ -171,9 +178,17 @@ autosummary_filename_map = {
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3/", None),
     "numpy": ("https://docs.scipy.org/doc/numpy/", None),
-    "pandas": ("http://pandas.pydata.org/pandas-docs/stable/", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
+    "dask": ("https://docs.dask.org/en/latest/", None),
+    "koalas": ("https://koalas.readthedocs.io/en/latest/", None),
+    "modin": ("https://modin.readthedocs.io/en/latest/", None),
 }
 
+# strip prompts
+copybutton_prompt_text = (
+    r">>> |\.\.\. |\$ |In \[\d*\]: | {2,5}\.\.\.: | {5,8}: "
+)
+copybutton_prompt_is_regexp = True
 
 # this is a workaround to filter out forward reference issue in
 # sphinx_autodoc_typehints

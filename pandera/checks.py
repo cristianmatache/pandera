@@ -21,7 +21,7 @@ from typing import (
 
 import pandas as pd
 
-from . import constants, errors
+from . import check_utils, constants, errors
 from . import strategies as st
 
 CheckResult = namedtuple(
@@ -51,9 +51,7 @@ def register_check_statistics(statistics_args):
             args_dict = {**dict(zip(arg_names, args)), **kwargs}
             check = class_method(cls, *args, **kwargs)
             check.statistics = {
-                stat: args_dict.get(stat)
-                for stat in statistics_args
-                if args_dict.get(stat) is not None
+                stat: args_dict.get(stat) for stat in statistics_args
             }
             check.statistics_args = statistics_args
             return check
@@ -106,7 +104,10 @@ class _CheckBase(metaclass=_CheckMeta):
 
     def __init__(
         self,
-        check_fn: Callable,
+        check_fn: Union[
+            Callable[[pd.Series], Union[pd.Series, bool]],
+            Callable[[pd.DataFrame], Union[pd.DataFrame, pd.Series, bool]],
+        ],
         groups: Optional[Union[str, List[str]]] = None,
         groupby: Optional[Union[str, List[str], Callable]] = None,
         ignore_na: bool = True,
@@ -202,9 +203,9 @@ class _CheckBase(metaclass=_CheckMeta):
         >>>
         >>> schema = pa.DataFrameSchema(
         ...     columns={
-        ...         "measure_1": pa.Column(pa.Int, checks=measure_checks),
-        ...         "measure_2": pa.Column(pa.Int, checks=measure_checks),
-        ...         "group": pa.Column(pa.String),
+        ...         "measure_1": pa.Column(int, checks=measure_checks),
+        ...         "measure_2": pa.Column(int, checks=measure_checks),
+        ...         "group": pa.Column(str),
         ...     },
         ...     checks=check_dataframe
         ... )
@@ -308,7 +309,7 @@ class _CheckBase(metaclass=_CheckMeta):
             to be used by `_check_fn` and `_vectorized_check`
 
         """
-        if isinstance(df_or_series, pd.Series):
+        if check_utils.is_field(df_or_series):
             return df_or_series
         elif self.groupby is None:
             return df_or_series[column]
@@ -366,16 +367,16 @@ class _CheckBase(metaclass=_CheckMeta):
             ``failure_cases``: subset of the check_object that failed.
         """
         # prepare check object
-        if isinstance(df_or_series, pd.Series) or (
-            column is not None and isinstance(df_or_series, pd.DataFrame)
+        if check_utils.is_field(df_or_series) or (
+            column is not None and check_utils.is_table(df_or_series)
         ):
             check_obj = self._prepare_series_input(df_or_series, column)
-        elif isinstance(df_or_series, pd.DataFrame):
+        elif check_utils.is_table(df_or_series):
             check_obj = self._prepare_dataframe_input(df_or_series)
         else:
             raise ValueError(
-                f"object of type {df_or_series} not supported. Must be a "
-                "Series, a dictionary of Series, or DataFrame"
+                f"object of type {type(df_or_series)} not supported. Must be "
+                "a Series, a dictionary of Series, or DataFrame"
             )
 
         # apply check function to check object
@@ -383,10 +384,10 @@ class _CheckBase(metaclass=_CheckMeta):
 
         if self.element_wise:
             check_output = (
-                check_obj.apply(check_fn, axis=1)
-                if isinstance(check_obj, pd.DataFrame)
-                else check_obj.map(check_fn)
-                if isinstance(check_obj, pd.Series)
+                check_obj.apply(check_fn, axis=1)  # type: ignore
+                if check_utils.is_table(check_obj)
+                else check_obj.map(check_fn)  # type: ignore
+                if check_utils.is_field(check_obj)
                 else check_fn(check_obj)
             )
         else:
@@ -398,40 +399,32 @@ class _CheckBase(metaclass=_CheckMeta):
         if (
             isinstance(check_obj, dict)
             or isinstance(check_output, bool)
-            or not isinstance(check_output, (pd.Series, pd.DataFrame))
+            or not check_utils.is_supported_check_obj(check_output)
             or check_obj.shape[0] != check_output.shape[0]
             or (check_obj.index != check_output.index).all()
         ):
             failure_cases = None
-        elif isinstance(check_output, pd.Series):
-            if self.ignore_na:
-                isna = (
-                    check_obj.isna().any(axis="columns")
-                    if isinstance(check_obj, pd.DataFrame)
-                    else check_obj.isna()
-                )
-                check_output = check_output | isna
-            failure_cases = check_obj[~check_output]
-            if not failure_cases.empty and self.n_failure_cases is not None:
-                failure_cases = failure_cases.groupby(check_output).head(
-                    self.n_failure_cases
-                )
-        elif isinstance(check_output, pd.DataFrame):
-            # check results consisting of a boolean dataframe should be
-            # reported at the most granular level.
-            check_output = check_output.unstack()
-            if self.ignore_na:
-                check_output = check_output | df_or_series.unstack().isna()
-            failure_cases = (
-                check_obj.unstack()[~check_output]
-                .rename("failure_case")
-                .rename_axis(["column", "index"])
-                .reset_index()
+        elif check_utils.is_field(check_output):
+            (
+                check_output,
+                failure_cases,
+            ) = check_utils.prepare_series_check_output(
+                check_obj,
+                check_output,
+                ignore_na=self.ignore_na,
+                n_failure_cases=self.n_failure_cases,
             )
-            if not failure_cases.empty and self.n_failure_cases is not None:
-                failure_cases = failure_cases.drop_duplicates().head(
-                    self.n_failure_cases
-                )
+        elif check_utils.is_table(check_output):
+            (
+                check_output,
+                failure_cases,
+            ) = check_utils.prepare_dataframe_check_output(
+                check_obj,
+                check_output,
+                df_orig=df_or_series,
+                ignore_na=self.ignore_na,
+                n_failure_cases=self.n_failure_cases,
+            )
         else:
             raise TypeError(
                 f"output type of check_fn not recognized: {type(check_output)}"
@@ -439,17 +432,16 @@ class _CheckBase(metaclass=_CheckMeta):
 
         check_passed = (
             check_output.all()
-            if isinstance(check_output, pd.Series)
+            if check_utils.is_field(check_output)
             else check_output.all(axis=None)
-            if isinstance(check_output, pd.DataFrame)
+            if check_utils.is_table(check_output)
             else check_output
         )
-
         return CheckResult(
             check_output, check_passed, check_obj, failure_cases
         )
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, type(self)):
             return NotImplemented
 
@@ -467,13 +459,13 @@ class _CheckBase(metaclass=_CheckMeta):
             are_strategy_fn_objects_equal = True
 
         are_all_other_check_attributes_equal = {
-            i: v
-            for i, v in self.__dict__.items()
-            if i not in ["_check_fn", "strategy"]
+            k: v
+            for k, v in self.__dict__.items()
+            if k not in ["_check_fn", "strategy"]
         } == {
-            i: v
-            for i, v in other.__dict__.items()
-            if i not in ["_check_fn", "strategy"]
+            k: v
+            for k, v in other.__dict__.items()
+            if k not in ["_check_fn", "strategy"]
         }
 
         return (
@@ -492,10 +484,10 @@ class _CheckBase(metaclass=_CheckMeta):
 
         return code
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self._get_check_fn_code())
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<Check {self.name}: {self.error}>"
             if self.error is not None

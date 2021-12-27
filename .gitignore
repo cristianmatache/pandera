@@ -1,4 +1,6 @@
 .vscode
+dask-worker-space
+spark-warehouse
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -113,7 +115,7 @@ venv.bak/
 /asv_bench/results/
 
 # Docs
-docs/source/generated
+docs/source/reference/generated
 
 # Nox
 .nox
